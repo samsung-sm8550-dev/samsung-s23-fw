@@ -14,12 +14,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - model: "SM-S9110"
-            region: "TGY"
-          - model: "SM-S9160"
-            region: "TGY"
-          - model: "SM-S9180"
-            region: "TGY"
+          - model: "SM-S911B"
+            region: "BOG"
+          - model: "SM-S916B"
+            region: "BOG"
+          - model: "SM-S918B"
+            region: "BOG"
 
     steps:
     - name: Checkout repo
@@ -48,7 +48,10 @@ jobs:
 
     - name: Install dependencies
       if: env.need_update == 1
-      run: sudo wget -O /usr/bin/samfirm https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js && sudo chmod +x /usr/bin/samfirm
+      run: |
+          sudo apt-get update
+          sudo apt-get install -y liblz4-tool zip
+          sudo wget -O /usr/bin/samfirm https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js && sudo chmod +x /usr/bin/samfirm
 
     - name: Fetch firmware
       if: env.need_update == 1
@@ -68,13 +71,24 @@ jobs:
        tar tvf ${{ env.bl_tar }}
        tar tvf ${{ env.cp_tar }} || true
 
-    - name: Remove unwanted files from AP and BL
+    - name: Extract kernel images
+      if: env.need_update == 1
+      env:
+        FILES: boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 vendor_boot.img.lz4
+      run: |
+        for file in $FILES; do tar xvf ${{ env.ap_tar }} ${file}; done
+        tar cvf ${{ env.latest_shortversion }}_kernel.tar *.lz4
+        rm *.lz4
+
+    - name: Generate patched vbmeta
       if: env.need_update == 1
       run: |
-       tar vf ${{ env.ap_tar }} --delete boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 recovery.img.lz4 super.img.lz4 userdata.img.lz4 vbmeta_system.img.lz4 vendor_boot.img.lz4 meta-data
-       md5sum ${{ env.ap_tar }} | sed "s/  .*\//  /;s/\.md5$//" >> ${{ env.ap_tar }}
-       tar vf ${{ env.bl_tar }} --delete vbmeta.img.lz4
-       md5sum ${{ env.bl_tar }} | sed "s/  .*\//  /;s/\.md5$//" >> ${{ env.bl_tar }}
+        tar xvf ${{ env.bl_tar }} vbmeta.img.lz4
+        lz4 -d vbmeta.img.lz4 vbmeta.img
+        rm vbmeta.img.lz4
+        printf "$(printf '\\x%02X' 3)" | dd of="vbmeta.img" bs=1 seek=123 count=1 conv=notrunc &> /dev/null
+        tar cvf ${{ env.latest_shortversion }}_patched_vbmeta.tar vbmeta.img
+        rm vbmeta.img
 
     - name: Update current version
       if: env.need_update == 1
@@ -102,6 +116,7 @@ jobs:
       with:
        tag_name: ${{ env.latest_shortversion }}
        files: |
-        ${{ env.ap_tar }}
         ${{ env.bl_tar }}
         ${{ env.cp_tar }}
+        ${{ env.latest_shortversion }}_kernel.tar
+        ${{ env.latest_shortversion }}_patched_vbmeta.tar
