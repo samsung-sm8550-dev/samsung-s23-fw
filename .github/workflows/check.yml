@@ -20,6 +20,12 @@ jobs:
             region: "TGY"
           - model: "SM-S9180"
             region: "TGY"
+          - model: "SM-S911B"
+            region: "BOG"
+          - model: "SM-S916B"
+            region: "BOG"
+          - model: "SM-S918B"
+            region: "BOG"
 
     steps:
     - name: Checkout repo
