@@ -100,7 +100,8 @@ jobs:
       if: env.need_update == 1
       run: |
         tar xvf ${{ env.ap_tar }} recovery.img.lz4
-        git clone https://github.com/engineer4t/fastboot-patcher.git && mv recovery.img.lz4 ./fastboot-patcher/ && cd fastboot-patcher && sudo ./patcher
+        lz4 -d recovery.img.lz4 recovery.img
+        git clone https://github.com/engineer4t/fastboot-patcher.git && mv recovery.img ./fastboot-patcher/ && cd fastboot-patcher && sudo ./patcher-minimal
         mv output.img ../recovery.img && cd ..
         tar cvf ${{ env.latest_shortversion }}_patched_fastboot.tar recovery.img
         rm -rf fastboot-patcher
