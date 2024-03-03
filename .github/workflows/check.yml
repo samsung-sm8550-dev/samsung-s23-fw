@@ -36,17 +36,23 @@ jobs:
        echo "latest_modemversion=$latest_modem" >> $GITHUB_ENV
        echo "need_update=$need_update" >> $GITHUB_ENV
 
-    - name: Use Node.js 15
+    - name: Set up Node.js
       if: env.need_update == 1
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v4
       with:
-        node-version: 15
+        node-version: 'latest'
+
+    - name: Set up Python 3
+      if: env.need_update == 1
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
 
     - name: Install dependencies
       if: env.need_update == 1
       run: |
           sudo apt-get update
-          sudo apt-get install -y liblz4-tool zip
+          sudo apt-get install -y liblz4-tool zip openssl
           sudo wget -O /usr/bin/samfirm https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js && sudo chmod +x /usr/bin/samfirm
 
     - name: Fetch firmware
@@ -74,7 +80,7 @@ jobs:
     - name: Extract kernel images
       if: env.need_update == 1
       env:
-        FILES: boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 vendor_boot.img.lz4
+        FILES: boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 vendor_boot.img.lz4 recovery.img.lz4
       run: |
         for file in $FILES; do tar xvf ${{ env.ap_tar }} ${file}; done
         tar cvf ${{ env.latest_shortversion }}_kernel.tar *.lz4
@@ -89,6 +95,15 @@ jobs:
         printf "$(printf '\\x%02X' 3)" | dd of="vbmeta.img" bs=1 seek=123 count=1 conv=notrunc &> /dev/null
         tar cvf ${{ env.latest_shortversion }}_patched_vbmeta.tar vbmeta.img
         rm vbmeta.img
+
+    - name: Generate patched fastboot
+      if: env.need_update == 1
+      run: |
+        tar xvf ${{ env.ap_tar }} recovery.img.lz4
+        git clone https://github.com/engineer4t/fastboot-patcher.git && mv recovery.img.lz4 ./fastboot-patcher/ && cd fastboot-patcher && sudo ./patcher
+        mv output.img ../recovery.img && cd ..
+        tar cvf ${{ env.latest_shortversion }}_patched_fastboot.tar recovery.img
+        rm -rf fastboot-patcher
 
     - name: Update current version
       if: env.need_update == 1
@@ -120,3 +135,4 @@ jobs:
         ${{ env.cp_tar }}
         ${{ env.latest_shortversion }}_kernel.tar
         ${{ env.latest_shortversion }}_patched_vbmeta.tar
+        ${{ env.latest_shortversion }}_patched_fastboot.tar
