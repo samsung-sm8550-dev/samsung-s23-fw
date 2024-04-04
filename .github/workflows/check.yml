@@ -14,18 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - model: "SM-S9110"
-            region: "TGY"
           - model: "SM-S9160"
             region: "TGY"
-          - model: "SM-S9180"
-            region: "TGY"
-          - model: "SM-S911B"
-            region: "BOG"
-          - model: "SM-S916B"
-            region: "BOG"
           - model: "SM-S918B"
-            region: "BOG"
+            region: "EUX"
 
     steps:
     - name: Checkout repo
@@ -68,16 +60,8 @@ jobs:
     - name: Fetch firmware
       if: env.need_update == 1
       run: |
-       if [[ "${{ matrix.model }}" == "SM-S9110" ]]; then
-           imei="350168337428453"
-       elif [[ "${{ matrix.model }}" == "SM-S911B"]]; then
-           imei="350168337428453"
-       elif [[ "${{ matrix.model }}" == "SM-S9160"]]; then
+       if [[ "${{ matrix.model }}" == "SM-S9160"]]; then
            imei="355267720345327"
-       elif [[ "${{ matrix.model }}" == "SM-S916B"]]; then
-           imei="355267720345327"
-       elif [[ "${{ matrix.model }}" == "SM-S9180"]]; then
-           imei="354721885348501"
        elif [[ "${{ matrix.model }}" == "SM-S918B"]]; then
            imei="354721885348501"
        fi
