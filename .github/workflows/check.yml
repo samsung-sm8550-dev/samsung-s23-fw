@@ -14,6 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - model: "SM-S911B"
+            region: "EUX"
           - model: "SM-S9160"
             region: "TGY"
           - model: "SM-S918B"
@@ -60,7 +62,9 @@ jobs:
     - name: Fetch firmware
       if: env.need_update == 1
       run: |
-       if [[ "${{ matrix.model }}" == "SM-S9160" ]]; then
+       if [[ "${{ matrix.model }}" == "SM-S911B" ]]; then
+           imei="352772520002740"
+       elif [[ "${{ matrix.model }}" == "SM-S9160" ]]; then
            imei="355267720345327"
        elif [[ "${{ matrix.model }}" == "SM-S918B" ]]; then
            imei="354721880318483"
