@@ -20,6 +20,8 @@ jobs:
             region: "TGY"
           - model: "SM-S918B"
             region: "EUX"
+          - model: "SM-X710"
+            region: "XAR"
 
     steps:
     - name: Checkout repo
