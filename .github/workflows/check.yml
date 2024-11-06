@@ -70,6 +70,8 @@ jobs:
            imei="355267720345327"
        elif [[ "${{ matrix.model }}" == "SM-S918B" ]]; then
            imei="354721880318483"
+       elif [[ "${{ matrix.model }}" == "SM-X710" ]]; then
+           imei=""
        fi
        samfirm -m ${{ matrix.model }} -r ${{ matrix.region }} -i $imei
 
