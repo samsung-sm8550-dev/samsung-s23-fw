@@ -22,6 +22,8 @@ jobs:
             region: "EUX"
           - model: "SM-S918B"
             region: "EUX"
+          - model: "SM-X710"
+            region: "XAR"
 
     steps:
     - name: Checkout repo
@@ -72,6 +74,8 @@ jobs:
            imei="356761461234566"
        elif [[ "${{ matrix.model }}" == "SM-S918B" ]]; then
            imei="354721880318483"
+       elif [[ "${{ matrix.model }}" == "SM-X710" ]]; then
+           imei=""
        fi
        samfirm -m ${{ matrix.model }} -r ${{ matrix.region }} -i $imei
 
