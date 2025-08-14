@@ -6,13 +6,6 @@ on:
   push:
   workflow_dispatch:
 
-concurrency:
-  group: firmware-${{ github.ref }}-${{ matrix.model }}
-  cancel-in-progress: false
-
-permissions:
-  contents: write
-
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -21,15 +14,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - model: "SM-S911B"  # S23
+          - model: "SM-S911B"
             region: "EUX"
-          - model: "SM-S9160"  # S23+ HK
+          - model: "SM-S9160"
             region: "TGY"
-          - model: "SM-S916B"  # S23+ EU
+          - model: "SM-S916B"
             region: "EUX"
-          - model: "SM-S918B"  # S23U EU
+          - model: "SM-S918B"
             region: "EUX"
-          - model: "SM-X710"   # Tab S9 Wi-Fi
+          - model: "SM-X710"
             region: "XAR"
 
     steps:
