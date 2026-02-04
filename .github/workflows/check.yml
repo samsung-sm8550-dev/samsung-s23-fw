@@ -22,130 +22,194 @@ jobs:
             region: "EUX"
           - model: "SM-S918B"
             region: "EUX"
+          - model: "SM-X710"
+            region: "XAR"
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
-      with:
-        submodules: true
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
 
-    - name: Compare latest version with current version
-      run: |
-       need_update=0
-       latest=`curl --retry 5 --retry-delay 5 http://fota-cloud-dn.ospserver.net/firmware/${{ matrix.region }}/${{ matrix.model }}/version.xml | grep latest | sed 's/^[^>]*>//' | sed 's/<.*//'`
-       latest_short=`echo $latest | cut -d'/' -f1`
-       latest_modem=`echo $latest | cut -d'/' -f3`
-       current=`cat current.${{ matrix.model }}` || need_update=1
-       [[ $latest != $current ]] && need_update=1
-       echo "latest_version=$latest" >> $GITHUB_ENV
-       echo "latest_shortversion=$latest_short" >> $GITHUB_ENV
-       echo "latest_modemversion=$latest_modem" >> $GITHUB_ENV
-       echo "need_update=$need_update" >> $GITHUB_ENV
+      - name: Compare latest version with current version
+        id: cmp
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends libxml2-utils
+          # Robust fetch + parse
+          xml="$(curl -fsSLS --retry 5 --retry-delay 5 --connect-timeout 10 \
+            "https://fota-cloud-dn.ospserver.net/firmware/${{ matrix.region }}/${{ matrix.model }}/version.xml")"
+          latest="$(xmllint --xpath 'string(//versioninfo/firmware/version/latest)' - <<<"$xml")"
+          latest_short="${latest%%/*}"
+          IFS='/' read -r _pda _csc modem <<<"$latest" || true
+          modem="${modem:-}"
 
-    - name: Set up Node.js
-      if: env.need_update == 1
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'latest'
+          need_update="0"
+          if [[ ! -f "current.${{ matrix.model }}" ]]; then
+            need_update="1"
+          else
+            current="$(cat "current.${{ matrix.model }}")" || need_update="1"
+            [[ "${latest}" != "${current}" ]] && need_update="1"
+          fi
 
-    - name: Set up Python 3
-      if: env.need_update == 1
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
+          {
+            echo "latest_version=${latest}"
+            echo "latest_shortversion=${latest_short}"
+            echo "latest_modemversion=${modem}"
+            echo "need_update=${need_update}"
+          } >> "$GITHUB_ENV"
 
-    - name: Install dependencies
-      if: env.need_update == 1
-      run: |
-          sudo apt-get update
-          sudo apt-get install -y liblz4-tool zip openssl
-          sudo wget -O /usr/bin/samfirm https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js && sudo chmod +x /usr/bin/samfirm
+      - name: Set up Node.js (22.x)
+        if: env.need_update == '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
 
-    - name: Fetch firmware
-      if: env.need_update == 1
-      run: |
-       if [[ "${{ matrix.model }}" == "SM-S911B" ]]; then
-           imei="352772520002740"
-       elif [[ "${{ matrix.model }}" == "SM-S9160" ]]; then
-           imei="355267720345327"
-       elif [[ "${{ matrix.model }}" == "SM-S916B" ]]; then
-           imei="356761461234566"
-       elif [[ "${{ matrix.model }}" == "SM-S918B" ]]; then
-           imei="354721880318483"
-       fi
-       samfirm -m ${{ matrix.model }} -r ${{ matrix.region }} -i $imei
+      - name: Set up Python 3
+        if: env.need_update == '1'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-    - name: Get path of files
-      if: env.need_update == 1
-      run: |
-       echo "ap_tar=`find -name AP*`" >> $GITHUB_ENV
-       echo "bl_tar=`find -name BL*`" >> $GITHUB_ENV
-       echo "cp_tar=`find -name CP*`" >> $GITHUB_ENV
+      - name: Install dependencies
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            liblz4-tool zip openssl git ca-certificates
+          # samfirm.js v0.3.0 is a Node script with a shebang; make it executable
+          sudo curl -fL -o /usr/bin/samfirm \
+            https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js
+          sudo chmod +x /usr/bin/samfirm
 
-    - name: Check contents of downloaded firmware
-      if: env.need_update == 1
-      run: |
-       tar tvf ${{ env.ap_tar }}
-       tar tvf ${{ env.bl_tar }}
-       tar tvf ${{ env.cp_tar }} || true
+      - name: Fetch firmware
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.model }}" in
+            SM-S911B) imei="352772520002740" ;;
+            SM-S9160) imei="355267720345327" ;;
+            SM-S916B) imei="356761461234566" ;;
+            SM-S918B) imei="354721880318483" ;;
+            SM-X710)  imei="000000000000008" ;; # Wi-Fi, test IMEI pattern is fine
+            *) echo "No IMEI mapping for model ${{ matrix.model }}" >&2; exit 2 ;;
+          esac
+          samfirm -m "${{ matrix.model }}" -r "${{ matrix.region }}" -i "${imei}"
 
-    - name: Extract kernel images
-      if: env.need_update == 1
-      env:
-        FILES: boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 vendor_boot.img.lz4 recovery.img.lz4
-      run: |
-        for file in $FILES; do tar xvf ${{ env.ap_tar }} ${file}; done
-        tar cvf ${{ env.latest_shortversion }}_kernel.tar *.lz4
-        rm *.lz4
+      - name: Get path of files
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Limit to regular files, prefer top-level matches
+          ap_tar="$(find . -type f -maxdepth 3 -name 'AP*.tar.md5' -o -name 'AP*.tar' | head -n1 || true)"
+          bl_tar="$(find . -type f -maxdepth 3 -name 'BL*.tar.md5' -o -name 'BL*.tar' | head -n1 || true)"
+          cp_tar="$(find . -type f -maxdepth 3 -name 'CP*.tar.md5' -o -name 'CP*.tar' | head -n1 || true)"
 
-    - name: Generate patched vbmeta
-      if: env.need_update == 1
-      run: |
-        tar xvf ${{ env.bl_tar }} vbmeta.img.lz4
-        lz4 -d vbmeta.img.lz4 vbmeta.img
-        rm vbmeta.img.lz4
-        printf "$(printf '\\x%02X' 3)" | dd of="vbmeta.img" bs=1 seek=123 count=1 conv=notrunc &> /dev/null
-        tar cvf ${{ env.latest_shortversion }}_patched_vbmeta.tar vbmeta.img
-        rm vbmeta.img
+          [[ -z "${ap_tar}" || -z "${bl_tar}" ]] && { echo "Missing AP/BL archives"; exit 3; }
 
-    - name: Generate patched fastboot
-      if: env.need_update == 1
-      run: |
-        tar xvf ${{ env.ap_tar }} recovery.img.lz4
-        lz4 -d recovery.img.lz4 recovery.img
-        git clone https://github.com/engineer4t/fastboot-patcher.git && mv recovery.img ./fastboot-patcher/ && cd fastboot-patcher && ./patcher-minimal
-        mv output/output.img ../recovery.img && cd ..
-        tar cvf ${{ env.latest_shortversion }}_patched_fastboot.tar recovery.img
-        rm -rf fastboot-patcher *.lz4
+          echo "ap_tar=${ap_tar}" >> "$GITHUB_ENV"
+          echo "bl_tar=${bl_tar}" >> "$GITHUB_ENV"
+          # Only set cp_tar if present, Wi-Fi models won't have one
+          if [[ -n "${cp_tar}" ]]; then
+            echo "cp_tar=${cp_tar}" >> "$GITHUB_ENV"
+          fi
 
-    - name: Update current version
-      if: env.need_update == 1
-      run: |
-       git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-       git config --local user.name "github-actions[bot]"
-       git pull origin ${{github.ref}} --ff-only
-       echo ${{ env.latest_version }} > current.${{ matrix.model }}
-       git add current.${{ matrix.model }}
-       git commit -m "${{ matrix.model }}: ${{ env.latest_version }}"
-       git tag ${{ env.latest_shortversion }}
+      - name: Check contents of downloaded firmware
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar tvf "${{ env.ap_tar }}"
+          tar tvf "${{ env.bl_tar }}"
+          if [[ -n "${{ env.cp_tar }}" ]]; then tar tvf "${{ env.cp_tar }}"; fi
 
-    - name: Push changes to repo
-      if: env.need_update == 1
-      uses: ad-m/github-push-action@master
-      with:
-       tags: true
-       github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract kernel images
+        if: env.need_update == '1'
+        env:
+          FILES: boot.img.lz4 dtbo.img.lz4 init_boot.img.lz4 vendor_boot.img.lz4 recovery.img.lz4
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in $FILES; do
+            tar xvf "${{ env.ap_tar }}" "$f" || true
+          done
+          tar cvf "${{ env.latest_shortversion }}_kernel.tar" *.lz4
+          rm -f *.lz4
 
-    - name: Upload release assets
-      if: env.need_update == 1
-      uses: softprops/action-gh-release@v1
-      env:
-       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-       tag_name: ${{ env.latest_shortversion }}
-       files: |
-        ${{ env.bl_tar }}
-        ${{ env.cp_tar }}
-        ${{ env.latest_shortversion }}_kernel.tar
-        ${{ env.latest_shortversion }}_patched_vbmeta.tar
-        ${{ env.latest_shortversion }}_patched_fastboot.tar
+      - name: Generate patched vbmeta
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar xvf "${{ env.bl_tar }}" vbmeta.img.lz4
+          lz4 -d vbmeta.img.lz4 vbmeta.img
+          rm -f vbmeta.img.lz4
+          # Flip verification byte at offset 123 (your original intent)
+          printf "$(printf '\\x%02X' 3)" | dd of="vbmeta.img" bs=1 seek=123 count=1 conv=notrunc status=none
+          tar cvf "${{ env.latest_shortversion }}_patched_vbmeta.tar" vbmeta.img
+          rm -f vbmeta.img
+
+      - name: Generate patched fastboot
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar xvf "${{ env.ap_tar }}" recovery.img.lz4
+          lz4 -d recovery.img.lz4 recovery.img
+          rm -f recovery.img.lz4
+          git clone --depth=1 https://github.com/engineer4t/fastboot-patcher.git
+          mv recovery.img fastboot-patcher/
+          pushd fastboot-patcher >/dev/null
+          ./patcher-minimal
+          popd >/dev/null
+          mv fastboot-patcher/output/output.img recovery.img
+          rm -rf fastboot-patcher
+          tar cvf "${{ env.latest_shortversion }}_patched_fastboot.tar" recovery.img
+          rm -f recovery.img
+
+      - name: Update current version and tag
+        if: env.need_update == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git pull --ff-only
+          printf '%s\n' "${{ env.latest_version }}" > "current.${{ matrix.model }}"
+          git add "current.${{ matrix.model }}"
+          git commit -m "${{ matrix.model }}: ${{ env.latest_version }}" || echo "No changes to commit"
+          # Create or update tag
+          tag="${{ env.latest_shortversion }}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            git tag -f "${tag}"
+          else
+            git tag "${tag}"
+          fi
+
+      - name: Push changes to repo
+        if: env.need_update == '1'
+        uses: ad-m/github-push-action@master
+        with:
+          tags: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        if: env.need_update == '1'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.latest_shortversion }}
+          files: |
+            ${{ env.bl_tar }}
+            ${{ env.latest_shortversion }}_kernel.tar
+            ${{ env.latest_shortversion }}_patched_vbmeta.tar
+            ${{ env.latest_shortversion }}_patched_fastboot.tar
+            ${{ env.cp_tar }}
